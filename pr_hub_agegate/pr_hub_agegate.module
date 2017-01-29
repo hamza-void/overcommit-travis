@@ -5,5 +5,5 @@
  */
 function pr_hub_agegate_init() {
   global $base_url, $base_path, $language;
-  echo $base_url;
+  echo $base_url . "Hello World";
 }
