@@ -3,3 +3,5 @@
 source "https://rubygems.org"
 
 # gem "rails"
+# Run all pre-commit checks via Overcommit during CI runs
+gem 'overcommit', '0.38.0'
