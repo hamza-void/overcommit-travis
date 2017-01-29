@@ -1,0 +1,136 @@
+<?php
+/**
+ * @file
+ * Install, update and uninstall functions for the dbtng_example module.
+ */
+
+/**
+ * Implements hook_enable()
+ */
+function pr_hub_agegate_enable()
+{
+
+    $t = get_t();
+
+    //Creation du menu utilisé sur la landing page
+    if (module_exists('menu')) {
+        $lp_menu = menu_load('landing-page-menu');
+        $ag_tc_menu=menu_load('ag-tc-menu');
+
+        if (!$lp_menu) {
+            menu_save(array(
+                'menu_name' => 'landing-page-menu',
+                'title' => $t('Landing Page Menu'),
+                'description' => $t('Liens du blocks landing page'),
+            ));
+        }
+
+        if (!$ag_tc_menu) {
+            menu_save(array(
+                'menu_name' => 'ag-tc-menu',
+                'title' => $t('AG Terms & Conditions menu'),
+                'description' => $t('Liens legaux affichés en dessous de l\'age gate'),
+            ));
+        }
+    }
+
+
+    $links = array(
+        array(
+            'title' => $t('Nos marques ?'),
+            'path' => '<front>',
+            'desc' => $t('découvrir nos marques'),
+            'class' => 'lp-link-brands',
+            'weight' => 0,
+        ),
+
+        array(
+            'title' => $t('Nos opportunités de carrière ?'),
+            'path' => '<front>',
+            'desc' => $t('trouver des opportunités de carrières'),
+            'class' => 'lp-link-career',
+            'weight' => 1,
+        ),
+
+        array(
+            'title' => $t('Nos actualités et communiqués ?'),
+            'path' => '<front>',
+            'desc' => $t('voir nos dernières actualités'),
+            'class' => 'lp-link-news',
+            'weight' => 2,
+        ),
+
+        array(
+            'title' => $t('Nos engagements sociétaux ?'),
+            'path' => '<front>',
+            'desc' => $t('consulter nos engagements sociétaux'),
+            'class' => 'lp-link-group ',
+            'weight' => 3,
+        ),
+
+        array(
+            'title' => $t('Nos informations financières et réglementées'),
+            'path' => '<front>',
+            'desc' => $t('découvrir nos informations financières et réglementées'),
+            'class' => 'lp-link-finance',
+            'weight' => 4,
+        ),
+
+        array(
+            'title' => $t('Merci, je préfére explorer le site par moi-même'),
+            'path' => '<front>',
+            'desc' => $t('aller à l\'accueil'),
+            'class' => 'lp-link-home',
+            'weight' => 5,
+        ),
+    );
+
+    pr_agegate_create_menu_links($links, 'landing-page-menu');
+
+    $tc_links = array(
+        array(
+            'title' => $t('Mentions légales'),
+            'path' => '<front>',
+            'desc' => $t('Mentions légales'),
+            'class' => 'ag-tc',
+            'weight' => 0,
+        ));
+
+    pr_agegate_create_menu_links($tc_links, 'ag-tc-menu');
+
+}
+
+
+/**
+ * Implements hook_uninstall()
+ */
+function pr_hub_agegate_uninstall()
+{
+    if (module_exists('menu')) {
+        if ($lp_menu = menu_load('landing-page-menu')) {
+            menu_delete($lp_menu);
+        }
+
+        if ($tc_menu = menu_load('ag-tc-menu')) {
+            menu_delete($tc_menu);
+        }
+    }
+}
+
+
+function pr_agegate_create_menu_links($links, $menu_name)
+{
+    foreach ($links as $link) {
+        $item = array(
+            'menu_name' => $menu_name,
+            'link_title' => $link['title'],
+            'link_path' => drupal_get_normal_path($link['path']),
+            'plid' => 0,
+            'customized' => 1,
+            //'language' => 'fr',
+        );
+        $item['options']['attributes']['title'] = $link['desc'];
+        $item['options']['attributes']['class'][] = $link['class'];
+        menu_link_save($item);
+    }
+}

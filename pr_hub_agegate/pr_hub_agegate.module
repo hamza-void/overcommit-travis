@@ -1,0 +1,1212 @@
+<?php
+
+/**
+ * Implements hook_init().
+ */
+function pr_hub_agegate_init() {
+  global $base_url, $base_path, $language;
+
+  $lng = $language->language;
+  $lng = str_replace("eng", "en", $lng);
+
+  $full_base_url = $base_url . $base_path . $lng;
+  if (is_local_section()) {
+    $full_base_url = $base_url;
+  }
+
+  $path = current_path();
+  $alias = drupal_get_path_alias($path);
+  $agvars = variable_get('pr_lp_ag_vars');
+  $agvars_paths = $agvars['ag']['ag_pages'];
+  $pages = explode(PHP_EOL, $agvars_paths);
+  $session_link = $full_base_url . '/lp-ag/session/';
+  $cookie_lifetime = isset($agvars['common']['cookie_lifetime']) ? $agvars['common']['cookie_lifetime'] : 31536000;
+
+  if (path_is_admin($path)) {
+    return;
+  }
+
+  foreach ($pages as $page) {
+    $page_path = drupal_get_normal_path(trim($page));
+
+    if (drupal_match_path($path, $page_path) || drupal_match_path($alias, $page_path) || drupal_is_front_page()) {
+      drupal_add_js(array(
+        'session_link' => $session_link,
+        'cookie_lifetime' => $cookie_lifetime
+      ), 'setting');
+      drupal_add_js(drupal_get_path('module', 'pr_hub_agegate') . '/lib/jquery.keyframes.js', array('cache' => TRUE));
+      drupal_add_js(drupal_get_path('module', 'pr_hub_agegate') . '/js/agegate.min.js', array(
+        'cache' => FALSE,
+        'weight' => 99999999999999
+      ));
+      drupal_add_js(drupal_get_path('module', 'pr_hub_agegate') . '/lib/jQuery.numeric.js', array('cache' => TRUE));
+      drupal_add_js('//js.maxmind.com/js/apis/geoip2/v2.1/geoip2.js', array(
+        'scope' => 'header',
+        'group' => JS_LIBRARY,
+        'weight' => 4,
+        'type' => 'external',
+      ));
+      $lng = $language->language;
+      $lng = str_replace("eng", "en", $lng);
+      drupal_add_js(array(
+        'age_gate' => array(
+          'cookie_lifetime' => $cookie_lifetime,
+          'interstitiel_seconde' => 7, // Seconds
+          'track_url' => $full_base_url . "/u_track/intertistiel/",
+          'reset_redirection_url' => $full_base_url . "/u_track/intertistiel/?redirect_displayed=true",
+          'baseUrl' => $full_base_url,
+        ),
+      ), 'setting');
+      break;
+    }
+  }
+}
+
+/**
+ * Implements hook_menu().
+ */
+function pr_hub_agegate_menu() {
+  $items = array();
+  // Settings age gate.
+  $items['admin/lp-ag/settings'] = array(
+    'title' => 'Age gate settings',
+    'description' => 'Configuration de la landing page et de l\'Age Gate.',
+    'page callback' => 'drupal_get_form',
+    'file' => 'includes/pr_hub_agegate.admin.inc',
+    'page arguments' => array('agegate_settings_form'),
+    'access arguments' => array('administer site configuration'),
+  );
+
+  // To set Age get session variable
+  $items['lp-ag/session/ag'] = array(
+    'page callback' => 'ag_set_session',
+    'access callback' => TRUE,
+  );
+
+  $items['lp-ag/session/lp'] = array(
+    'page callback' => 'lp_set_session',
+    'access callback' => TRUE,
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_block_info().
+ * The resulting landing page block
+ */
+function pr_hub_agegate_block_info() {
+  $blocks = array();
+  $blocks['pr_landing_page_block'] = array(
+    'info' => t('PR LANDING PAGE'),
+    'cache' => DRUPAL_NO_CACHE,
+  );
+
+  $blocks['pr_agegate_block'] = array(
+    'info' => t('PR AGE GATE BLOCK'),
+    'cache' => DRUPAL_NO_CACHE,
+  );
+
+  return $blocks;
+}
+
+
+/**
+ * Implements hook_block_view().
+ */
+function pr_hub_agegate_block_view($delta = '') {
+  $block = array();
+  switch ($delta) {
+
+    // LANDING PAGE
+    case ('pr_landing_page_block'):
+
+      $elements = get_age_get_static_elements();
+      $background = $elements['background'];
+      $lang = $elements['lang'];
+      $logo = $elements['logo'];
+
+
+      $default = variable_get('pr_lp_ag_vars');
+      if (isset($default)) {
+        $lp = $default['lp'];
+      }
+
+      //landing menu block
+      $menu = block_load('menu', 'landing-page-menu');
+      $menu_render = _block_get_renderable_array(_block_render_blocks(array($menu)));
+      unset ($menu_render['menu_landing-page-menu']['#block']->subject);
+
+      // Search form
+      $form = drupal_get_form('pr_hub_agegate_search_form');
+      if ($lp['disable_search'] == 1) {
+        $form = "";
+      }
+
+
+      //TC menu block
+      $tc_menu = block_load('menu', 'ag-tc-menu');
+      $tc_menu_render = _block_get_renderable_array(_block_render_blocks(array($tc_menu)));
+      unset ($tc_menu_render['menu_ag-tc-menu']['#block']->subject);
+
+      // Markups
+      $welcome_text = isset($lp['welcome_text']) ? array('#markup' => t($lp['welcome_text'])) : array('#markup' => t('Bienvenue chez nous !'));
+      $intro_text = isset($lp['entete_menu']) ? array('#markup' => t($lp['entete_menu'])) : array('#markup' => t('Que peut-on vous servir ?'));
+      $texte_sanitaire = $elements['texte_sanitaire'];
+
+
+      // construct the final render
+      $block['subject'] = NULL;
+      $block['content'] = theme('landing_page_block', array(
+          'lang' => render($lang),
+          'background' => $background,
+          'logo' => $logo,
+          'search' => render($form),
+          'links' => render($menu_render),
+          'welcome_text' => $welcome_text,
+          'intro_text' => $intro_text,
+          'under_text' => $texte_sanitaire,
+          'legal_menu' => render($tc_menu_render),
+        )
+      );
+      $block['content'] .= _pr_hub_get_interstitiel();
+
+      break;
+
+
+    // AGE GATE
+    case ('pr_agegate_block'):
+
+      $default = variable_get('pr_lp_ag_vars');
+      if (isset($default)) {
+        $ag = $default['ag'];
+      }
+
+
+      //TC menu block
+      $tc_menu = block_load('menu', 'ag-tc-menu');
+      $tc_menu_render = _block_get_renderable_array(_block_render_blocks(array($tc_menu)));
+      unset ($tc_menu_render['menu_ag-tc-menu']['#block']->subject);
+
+      $elements = get_age_get_static_elements();
+      $background = $elements['background'];
+      $lang = $elements['lang'];
+      $logo = $elements['logo'];
+      $texte_sanitaire = $elements['texte_sanitaire'];
+      // Age gate form
+      $form = drupal_get_form('pr_hub_agegate_ag_form');
+      // Markups
+      $desc_text = isset($ag['description']) ? array('#markup' => t($ag['description'])) : "";
+      // construct the final render
+      $block['subject'] = NULL;
+      $block['content'] = array(
+        '#markup' => theme('agegate_block', array(
+            'lang' => render($lang),
+            'background' => $background,
+            'logo' => $logo,
+            'description' => $desc_text,
+            'form' => render($form),
+            'under_text' => $texte_sanitaire,
+            'legal_menu' => render($tc_menu_render),
+          )
+        ),
+      );
+      $block['content']['#markup'] .= _pr_hub_get_interstitiel();
+      break;
+  }
+  return $block;
+}
+
+function get_age_get_static_elements() {
+  global $conf;
+  $pr_hub_extra_theme = isset($conf['pr_hub_extra_theme']) ? $conf['pr_hub_extra_theme'] : NULL;
+
+  $elements = array();
+  $default = variable_get('pr_lp_ag_vars');
+  if (isset($default)) {
+    $common = $default['common'];
+  }
+
+  // Language switcher block
+  $lang_block = block_load('lang_dropdown', 'language');
+  $elements['lang'] = _block_get_renderable_array(_block_render_blocks(array($lang_block)));
+
+  //logo
+  $logo_fid = $pr_hub_extra_theme['logo']['image'] ? $pr_hub_extra_theme['logo']['image'] : $common['logo'];
+  $elements['logo'] = array(
+    '#theme' => 'image',
+    '#path' => pr_hub_get_fid_path($logo_fid) ? pr_hub_get_fid_path($logo_fid) : theme_get_setting('logo'),
+    '#alt' => t('Logo age gate'),
+    '#title' => t('Logo age gate'),
+    '#attributes' => array('class' => 'age-gate-logo')
+  );
+
+  //Background
+  $image = $common['image'] ? $common['image'] : 0;
+  $detect = mobile_detect_get_object();
+  $is_tablet = $detect->isTablet();
+  $is_mobile = $detect->isMobile();
+
+  if (isset($common['video']) && $common['video'] != 0 && !$is_mobile && !$is_tablet) {
+    $video = $common['video'];
+    $elements['background'] = array(
+      'type' => 'video',
+      'content' => pr_hub_get_video($video, $image),
+    );
+  }
+  else {
+    $elements['background'] = array(
+      'type' => 'image',
+      'content' => "background-image: url('" . pr_hub_get_fid_path($image) . "');",
+    );
+  }
+
+  $elements['texte_sanitaire'] = isset($common['texte_sanitaire']) ? array('#markup' => t($common['texte_sanitaire'])) : array('#markup' => t('L\'ABUS D\'ALCOOL EST DANGEREUX POUR LA SANTÉ. A CONSOMMER AVEC MODÉRATION'));
+
+  return $elements;
+}
+
+
+/**
+ * Implements hook_form().
+ * Used for search textfield on teh landing page
+ */
+function pr_hub_agegate_search_form($form, $form_state) {
+  $vars = variable_get('pr_hub_landing_page_vars');
+  $placeholder = $vars['search']['placeholder'];
+
+  $form['search'] = array(
+    '#type' => 'textfield',
+    '#attributes' => array(
+      'placeholder' => $placeholder ? t($placeholder) : t('Rechercher une information'),
+      'class' => array('edit-search'),
+    ),
+  );
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Save'),
+    '#ajax' => array(
+      'callback' => 'landing_page_search_callback',
+      'wrapper' => 'errors',
+      'event' => 'click'
+    ),
+  );
+
+  return $form;
+}
+
+function landing_page_search_callback($form, $form_state) {
+  ctools_include('ajax');
+  ctools_add_js('ajax-responder');
+
+  global $base_url;
+  global $base_path;  // Gérer le cas des sous dossiers
+
+  $link = $base_url . $base_path . '/lp-ag/session/lp/';
+  $value = trim($form_state['values']['search']);
+
+  $commands[] = ctools_ajax_command_redirect('search-result', 0, array('query' => array('search_api_views_fulltext' => check_plain($value))));
+  $commands[] = ajax_command_invoke("", 'agegate_set_session', array($link));
+
+  print ajax_render($commands);
+  exit;
+}
+
+/**
+ * Implements hook_theme().
+ */
+function pr_hub_agegate_theme($existing, $type, $theme, $path) {
+  return array(
+    'landing_page_block' => array(
+      'template' => 'landing-page-block',
+      'variables' => array(
+        'lang' => '',
+        'background' => array(),
+        'logo' => '',
+        'search' => '',
+        'links' => '',
+        'welcome_text' => '',
+        'intro_text' => '',
+        'under_text' => '',
+        'display_form' => FALSE,
+        'seconde' => 30,
+      ),
+      'path' => drupal_get_path('module', 'pr_hub_agegate') . '/templates',
+    ),
+    'agegate_block' => array(
+      'template' => 'agegate-block',
+      'variables' => array(
+        'lang' => '',
+        'background' => array(),
+        'logo' => '',
+        'description' => '',
+        'form' => '',
+        'under_text' => '',
+        'display_form' => FALSE,
+        'seconde' => 30,
+      ),
+      'path' => drupal_get_path('module', 'pr_hub_agegate') . '/templates',
+    ),
+    'agegate_interstitiel' => array(
+      'template' => 'agegate-interstitiel',
+      'variables' => array(
+        'content' => '',
+      ),
+      'path' => drupal_get_path('module', 'pr_hub_agegate') . '/templates',
+    ),
+  );
+}
+
+function _pr_hub_get_interstitiel() {
+  $scenario = extra_get_scenario_messages();
+  $interstiel = theme('agegate_interstitiel', array(
+    'content' => $scenario['interstistiel_message'],
+  ));
+  return $interstiel;
+}
+
+function pr_hub_get_fid_path($fid) {
+
+  $file = file_load($fid);
+  if ($file) {
+    $uri = $file->uri;
+    $url = file_create_url($uri);
+    return $url;
+  }
+  else {
+    return NULL;
+  }
+}
+
+function pr_hub_get_video($video, $poster) {
+
+
+  $file = file_load($video);
+  $url = file_create_url($file->uri);
+
+  if (isset($poster) && $poster != 0) {
+    $poster_file = file_load($poster);
+    $poster_url = file_create_url($poster_file->uri);
+  }
+
+  $output = array(
+    'poster' => "poster='" . $poster_url . "'",
+    'url' => $url,
+    'type' => $file->filemime,
+  );
+
+  return $output;
+}
+
+function pr_hub_agegate_ag_form($form, $form_state) {
+  global $base_root;
+  $path = current_path();
+  $alias = drupal_get_path_alias($path);
+  $normal_path = drupal_get_normal_path($path);
+
+  $default = variable_get('pr_lp_ag_vars');
+  $menu_links = menu_load_links('landing-page-menu');
+
+  if (isset($default)) {
+    $ag = $default['ag'];
+  }
+
+//    $choice_default = t('vous répondre');
+//    foreach ($menu_links as $links) {
+//        $aliasts=drupal_match_path($alias."/", $links['link_path']);
+//        $normalts=drupal_match_path($normal_path."/" , $links['link_path']);
+//        $aliasws=drupal_match_path($alias, $links['link_path']);
+//        $normalws=drupal_match_path($normal_path , $links['link_path']);
+//        $path_test=$aliasts+$normalts+$normalws+$aliasws;
+//
+//        if ( $path_test >= 1) {
+//            $choice_default = $links['options']['attributes']['title'];
+//        }
+//    }
+
+//    $choice = t('Avant de @choice <br /> nous vous dérangeons une dernière fois.', array('@choice' => strtolower(t($choice_default))));
+  $choice = t('Avant de vous répondre, nous vous dérangeons une dernière fois.');
+  $form['age_gate'] = array(
+    '#type' => 'fieldset',
+    '#tree' => TRUE,
+    '#title' => filter_xss($choice),
+    '#description' => t($ag['description']),
+    '#prefix' => '<div id="age-gate-second-step">',
+    '#suffix' => '</div>',
+  );
+
+
+  // Country.
+  $tree = array();
+  $vocabulary = taxonomy_vocabulary_machine_name_load('pays');
+  if (isset($vocabulary->vid)) {
+
+    $tree = taxonomy_get_tree($vocabulary->vid, 0, NULL, TRUE);
+  }
+
+  $options = array();
+  $associative = array(); // iso code => term id
+  foreach ($tree as $term) {
+    $options[$term->tid] = $term->name;
+    $akey = $term->field_short_iso[LANGUAGE_NONE][0]['value'];
+    $associative[$akey] = $term->tid;
+  }
+
+  $form['age_gate']['country'] = array(
+    '#type' => 'select',
+    '#options' => $options,
+    '#default_value' => isset($form_state['values']['age_gate']['country']) ? $form_state['values']['age_gate']['country'] : '',
+    '#required' => TRUE,
+    '#attributes' => array(
+      'class' => array('age-gate-country'),
+    ),
+    '#empty_option' => t('Sélectionnez votre pays'),
+    '#title' => t('1. Votre pays de résidence'),
+  );
+  // Birthday.
+  $form['age_gate']['birthday'] = array(
+    '#type' => 'fieldset',
+    '#tree' => TRUE,
+    '#collapsed' => FALSE,
+    '#collapsible' => FALSE,
+    '#title' => t('2. Votre date de naissance'),
+    '#required' => TRUE,
+    '#attributes' => array(
+      'class' => array('edit-age-gate-birthday'),
+
+    ),
+  );
+
+  $form['age_gate']['birthday']['day'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Jour'),
+    '#default_value' => isset($form_state['values']['age_gate']['birthday']['day']) ? $form_state['values']['age_gate']['birthday']['day'] : '',
+    '#size' => 2,
+    '#attributes' => array(
+      'placeholder' => t('JJ'),
+      'class' => array('age-gate-birthday-day'),
+    ),
+    '#maxlength' => 2,
+    '#required' => TRUE,
+  );
+  $form['age_gate']['birthday']['month'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Mois'),
+    '#size' => 2,
+    '#maxlength' => 2,
+    '#default_value' => isset($form_state['values']['age_gate']['birthday']['month']) ? $form_state['values']['age_gate']['birthday']['month'] : '',
+    '#required' => TRUE,
+    '#attributes' => array(
+      'placeholder' => t('MM'),
+      'class' => array('age-gate-birthday-month'),
+    ),
+  );
+  $form['age_gate']['birthday']['year'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Année'),
+    '#size' => 4,
+    '#maxlength' => 4,
+    '#default_value' => isset($form_state['values']['age_gate']['birthday']['year']) ? $form_state['values']['age_gate']['birthday']['year'] : '',
+    '#required' => TRUE,
+    '#attributes' => array(
+      'placeholder' => t('AAAA'),
+      'class' => array('age-gate-birthday-year'),
+    ),
+  );
+
+  // Current page URI
+  $form['age_gate']['current_page'] = array(
+    '#type' => 'hidden',
+    '#value' => $base_root . request_uri(),
+  );
+
+  // Final submit.
+  $form['age_gate']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Entrez'),
+    '#ajax' => array(
+      'callback' => 'age_gate_form_callback',
+      'wrapper' => 'errors',
+      'event' => 'click'
+    ),
+  );
+
+  // Add cookie.
+  $form['age_gate']['save_me'] = array(
+    '#type' => 'checkbox',
+    '#default_value' => isset($form_state['values']['age_gate']['save_me']) ? $form_state['values']['age_gate']['save_me'] : 1,
+    '#title' => t('Se souvenir de moi'),
+    '#suffix' => '<br><span class="remember_me_txt2">' . t('Ne pas cocher cette case s\'il s\'agit d\'un terminal partagé') . '</span>',
+    '#default_value' => FALSE,
+    '#attributes' => array(
+      'class' => array('age-gate-save-me'),
+    ),
+  );
+
+  // Geo IP.
+  drupal_add_js(array(
+    'age_gate' => array(
+      'iso' => $associative,
+    ),
+  ), 'setting');
+
+  return $form;
+
+
+}
+
+/**
+ * Ajax call back function invoked after age gate form submit
+ */
+function age_gate_form_callback($form, &$form_state) {
+  $form_state['rebuild'] = TRUE;
+  ctools_include('ajax');
+  ctools_add_js('ajax-responder');
+  global $base_url;
+  global $base_path;  // Gérer le cas des sous dossiers
+
+
+  $default = variable_get('pr_lp_ag_vars');
+  $cookie_lifetime = $default['common']['cookie_lifetime'] ? $default['common']['cookie_lifetime'] : 31536000;
+
+  // recuperer les valeurs du formulaire
+  $tid_country = $form_state['values']['age_gate']['country'];
+  $birthday = $form_state['values']['age_gate']['birthday'];
+  $save_me = $form_state['values']['age_gate']['save_me'];
+  $current_page_url = $form_state['values']['age_gate']['current_page'];
+
+  /** Validations **/
+  $commands = array();
+  $form_ok = NULL;
+  $illegal_country = FALSE;
+
+  $commands[] = ajax_command_invoke('div.site_not_available', 'remove');
+
+  // Année
+  if ($birthday['year'] == '' || (!is_numeric($birthday['year']) || intval($birthday['year']) != $birthday['year'] || $birthday['year'] <= 1900 || $birthday['year'] > date('Y'))) {
+    $commands[] = ajax_command_invoke('.age-gate-birthday-year', 'addClass', array('age-gate-error'));
+    $form_ok = FALSE;
+  }
+  else {
+    $commands[] = ajax_command_invoke('.age-gate-birthday-year', 'removeClass', array('age-gate-error'));
+  }
+
+  // Mois
+  if ($birthday['month'] == '' || (!is_numeric($birthday['month']) || intval($birthday['month']) != $birthday['month'] || $birthday['month'] <= 0 || $birthday['month'] > 12)) {
+    $commands[] = ajax_command_invoke('.age-gate-birthday-month', 'addClass', array('age-gate-error'));
+    $form_ok = FALSE;
+  }
+  else {
+    $commands[] = ajax_command_invoke('.age-gate-birthday-month', 'removeClass', array('age-gate-error'));
+  }
+
+  // Day
+  if ($birthday['day'] == '' || (!is_numeric($birthday['day']) || intval($birthday['day']) != $birthday['day'] || $birthday['day'] <= 0 || $birthday['day'] > 31)) {
+    $commands[] = ajax_command_invoke('.age-gate-birthday-day', 'addClass', array('age-gate-error'));
+    $form_ok = FALSE;
+  }
+  else {
+    $commands[] = ajax_command_invoke('.age-gate-birthday-day', 'removeClass', array('age-gate-error'));
+  }
+
+  // Pays
+  if ($tid_country && $tid_country != '') {
+    $term = taxonomy_term_load($tid_country);
+    $strictly_illegal = field_get_items('taxonomy_term', $term, 'field_strictly_illegal');
+    if (!empty($strictly_illegal) && $strictly_illegal[0]['value'] == 1) {
+      $commands[] = ajax_command_invoke('.fieldset-description', 'append', array('<div class="site_not_available"><p>' . t("Website not available in your country.") . '</p></div>'));
+      $form_ok = FALSE;
+      $illegal_country = TRUE;
+    }
+  }
+  else {
+    $commands[] = ajax_command_invoke('.age-gate-container .form-item-age-gate-country a , select.age-gate-country ', 'addClass', array('age-gate-error'));
+    $form_ok = FALSE;
+  }
+
+  //Calcul de l'age
+  if ($form_ok !== FALSE && $birthday['year'] !== '' && $birthday['month'] !== '' && $birthday['day'] !== '' && $tid_country !== '') {
+    $birthday_date = new DateTime($birthday['year'] . '-' . $birthday['month'] . '-' . $birthday['day']);
+    $today = new DateTime(date('Y-m-d'));
+    $age = $birthday_date->diff($today);
+    // verifier sur l'utilisateur a l'age legal .
+    $age_ok = pr_hub_age_gate_verify_age($tid_country, $age->format('%Y'));
+
+    if ($age_ok == FALSE && $illegal_country == FALSE) {
+      $commands[] = ctools_ajax_command_redirect('http://wise-drinking.com');
+      $form_ok = FALSE;
+    }
+  }
+
+  // Validation OK
+  $commands[] = ajax_command_invoke('', 'refresh_interstitiel');
+  $pr_referer = json_decode($_COOKIE['pr_referer']);
+  if ($form_ok !== FALSE) {
+    if (is_local_section()) {
+      $link = $base_url . '/lp-ag/session/ag/';
+    }
+    else {
+      $link = $base_url . $base_path . 'lp-ag/session/ag/';
+    }
+    if ($save_me == TRUE) {
+      $commands[] = ajax_command_invoke("", 'agegate_set_cookie');
+    }
+    $commands[] = ajax_command_invoke('#targetAgeGateWrapperId', 'remove');
+    $commands[] = ajax_command_invoke('html', 'removeClass', array('isAgeGate'));
+    $commands[] = ajax_command_invoke('body', 'removeClass', array('isAgeGate'));
+    $commands[] = ajax_command_invoke('.l-main', 'removeClass', array('fixWidth'));
+    $commands[] = ajax_command_invoke('.l-page-age-gate', 'removeClass', array('testAgeGatePage'));
+    $commands[] = ajax_command_invoke("", 'scrollTest');
+
+    //Test if is Page marque
+    // $commands[] = ajax_command_invoke("", 'runMarque');
+    //End test page marque
+
+    $commands[] = ajax_command_invoke("", 'agegate_set_session', array(
+      $link,
+      $current_page_url
+    ));
+    $term = taxonomy_term_load($tid_country);
+    $iso = field_get_items('taxonomy_term', $term, 'field_short_iso');
+    $commands[] = ajax_command_invoke("", 'agegate_update_country_cookie', array(rawurlencode($iso[0]['value'])));
+    if (!isset($_COOKIE['Drupal_visitor_pr_hub_interstitiel'])) {
+      $commands[] = ajax_command_invoke("", 'show_interstitiel');
+    }
+    else {
+      $commands[] = ajax_command_invoke("", 'show_redirect_interstitiel');
+    }
+    lp_set_session();
+
+
+  }
+  $commands[] = ajax_command_invoke('.loader-overlay', 'remove');
+  $commands[] = ajax_command_invoke('#loader-wrapper', 'remove');
+
+  print ajax_render($commands);
+  exit;
+}
+
+/**
+ * Implements hook_preprocess_HOOK().
+ */
+function pr_hub_agegate_preprocess_page(&$variables) {
+  // For $cookie_domain see also: drupal_settings_initialize()
+  global $cookie_domain;
+
+  // No cache, no agegate
+  if (user_is_logged_in()) {
+    return;
+  }
+
+  // .localhost causes problems
+  $cdom = ($cookie_domain == '.localhost') ? ini_get('session.cookie_domain') : $cookie_domain;
+
+  $path = current_path();
+  $alias = drupal_get_path_alias($path);
+  $normal_path = drupal_get_normal_path($path);
+  $default = variable_get('pr_lp_ag_vars');
+  $is_session_set = FALSE;
+
+  // Restore cookies
+  /*  setcookie('pr_landing_page_save_me');
+    setcookie('pr_age_gate_save_me');
+    unset($_COOKIE['pr_landing_page_save_me']);
+    unset($_COOKIE['pr_age_gate_save_me']);*/
+
+  // If cache is enabled.
+  if (variable_get('cache', 0) && variable_get('cache_sync', 0) == 0) {
+    setcookie("Drupal.session_cache.pr_age_gate_session", "", time() - 3600, '/', $cdom);
+    setcookie("Drupal.session_cache.pr_landing_page_session", "", time() - 3600, '/', $cdom);
+
+    if (isset($_COOKIE["Drupal_session_cache_pr_age_gate_session"])) {
+      unset($_COOKIE["Drupal_session_cache_pr_age_gate_session"]);
+    }
+    if (isset($_COOKIE["Drupal_session_cache_pr_landing_page_session"])) {
+      unset($_COOKIE["Drupal_session_cache_pr_landing_page_session"]);
+    }
+    variable_set('cache_sync', 1);
+  }
+
+  if (isset($default)) {
+    $ag = $default['ag'];
+    $lp = $default['lp'];
+  }
+
+  if (path_is_admin($path) || drupal_match_path($normal_path, 'user') == 1) {
+    return;
+  }
+
+  $step1 = $step2 = FALSE;
+
+  // Landing page
+  if (drupal_is_front_page() && $lp['lp_disable'] != 1) {
+    //if (!isset($_COOKIE['pr_landing_page_save_me']) && session_cache_get('pr_landing_page_session') != "OK" && session_cache_get('pr_age_gate_session') != "value" && !isset($_COOKIE['pr_age_gate_save_me'])) {
+      array_push($variables['classes_array'], 'testAgeGatePage');
+      array_push($variables['classes_array'], 'l-page-age-gate');
+      $block = block_load('pr_hub_agegate', 'pr_landing_page_block');
+      $block_render = _block_get_renderable_array(_block_render_blocks(array($block)));
+      $variables['page']['content']['pr_landing_page_block'] = $block_render;
+    //}
+  }
+
+
+  if (!(!isset($_COOKIE['pr_landing_page_save_me']) && session_cache_get('pr_landing_page_session') != "OK" && session_cache_get('pr_age_gate_session') != "value" && !isset($_COOKIE['pr_age_gate_save_me']))) {
+
+    if(($key = array_search('testAgeGatePage', $variables['classes_array'])) !== false) {
+      unset($variables['classes_array'][$key]);
+    }
+
+    if(($key = array_search('l-page-age-gate', $variables['classes_array'])) !== false) {
+      unset($variables['classes_array'][$key]);
+    }
+
+    if(($key = array_search('isAgeGate', $variables['classes_array'])) !== false) {
+      unset($variables['classes_array'][$key]);
+    }
+
+    drupal_add_css('.age-gate-first-step{display: none !important;}', 'inline');
+    $step1 = TRUE;
+  }
+
+
+  if (!drupal_is_front_page() && !isset($_COOKIE['pr_landing_page_save_me']) && session_cache_get('pr_landing_page_session') != "OK" && session_cache_get('pr_age_gate_session') != "value" && !isset($_COOKIE['pr_age_gate_save_me'])) {
+    if (!$is_session_set) {
+      lp_set_session();
+      $is_session_set = TRUE;
+    }
+  }
+
+  // AGE Gate
+  if ($ag['ag_disable'] == 0 || !isset($ag['ag_disable'])) {
+    $step2 = TRUE;
+    //if (session_cache_get('pr_age_gate_session') != "value" && !isset($_COOKIE['pr_age_gate_save_me'])) {
+      if (isset($ag['ag_pages']) && !empty($ag['ag_pages'])) {
+        $pages = explode(PHP_EOL, $ag['ag_pages']); // get AG links from BO
+        foreach ($pages as $page) {
+          $page = trim($page);
+          if (drupal_match_path($alias, $page) == 1 || drupal_match_path($normal_path, $page) == 1) {
+            if (!$is_session_set) {
+              lp_set_session();
+              $is_session_set = TRUE;
+            }
+            $step2 = FALSE;
+            array_push($variables['classes_array'], 'testAgeGatePage');
+            array_push($variables['classes_array'], 'l-page-age-gate');
+            $block = block_load('pr_hub_agegate', 'pr_agegate_block');
+            $block_render = _block_get_renderable_array(_block_render_blocks(array($block)));
+            $variables['page']['content']['pr_agegate_block'] = $block_render;
+          }
+        }
+      }
+    //}
+  }
+
+  if (!(session_cache_get('pr_age_gate_session') != "value" && !isset($_COOKIE['pr_age_gate_save_me']))) {
+
+    if(($key = array_search('testAgeGatePage', $variables['classes_array'])) !== false) {
+      unset($variables['classes_array'][$key]);
+    }
+
+    if(($key = array_search('l-page-age-gate', $variables['classes_array'])) !== false) {
+      unset($variables['classes_array'][$key]);
+    }
+    drupal_add_css('.age-gate-second-step{display: none !important;}', 'inline');
+    $step2 = TRUE;
+  }
+
+  if  ($step1 && $step2) {
+    array_push($variables['classes_array'], 'no-agegate');
+  }
+}
+
+/**
+ * Function which verify age by country.
+ *
+ * @param int $tid_country
+ *   Term id of country.
+ * @param int $age
+ *   User's age.
+ *
+ * @return bool
+ *   True if user got legel age.
+ */
+function pr_hub_agegate_verify_age($tid_country, $age) {
+  $term = taxonomy_term_load($tid_country);
+  $min_age = field_get_items('taxonomy_term', $term, 'field_age_minimum');
+  $illegal = field_get_items('taxonomy_term', $term, 'field_illegal');
+  if (!empty($illegal) && $illegal[0]['value'] == 1) {
+    return FALSE;
+  }
+  if (!empty($min_age) && $min_age[0]['value'] > $age) {
+    return FALSE;
+  }
+  return TRUE;
+}
+
+/**
+ * Implements hook_menu_link_update().
+ */
+function pr_hub_agegate_menu_link_update($link) {
+  if ($link['menu_name'] == 'landing-page-menu') {
+    $vars = variable_get('landing_page_links');
+    $item = array(
+      'title' => $link['link_title'],
+      'path' => $link['link_path'],
+      'desc' => $link['description'],
+      'class' => $link['options']['attributes']['class'],
+    );
+
+    if (!isset($vars)) {
+      $links[$link['mlid']] = $item;
+      variable_set('landing_page_links', $links);
+    }
+    else {
+      $vars[$link['mlid']] = $item;
+      variable_set('landing_page_links', $vars);
+    }
+  }
+}
+
+/**
+ * Implements hook_menu_link_insert().
+ */
+function pr_hub_agegate_menu_link_insert($link) {
+
+  if ($link['menu_name'] == 'landing-page-menu') {
+    $vars = variable_get('landing_page_links');
+    $item = array(
+      'title' => $link['link_title'],
+      'path' => $link['link_path'],
+      'desc' => $link['description'],
+      'class' => $link['options']['attributes']['class'],
+    );
+
+    if (!isset($vars)) {
+      $links[$link['mlid']] = $item;
+      variable_set('landing_page_links', $links);
+    }
+    else {
+      $vars[$link['mlid']] = $item;
+      variable_set('landing_page_links', $vars);
+    }
+  }
+
+}
+
+/**
+ * page call back function to set age gate session variables
+ */
+function lp_set_session() {
+  if (!session_cache_get('pr_landing_page_session')) {
+    session_cache_set('pr_landing_page_session', "OK");
+  }
+  /*$url = url('<front>',  array('absolute' => TRUE));
+  cache_clear_all($url, 'cache_page');*/
+}
+
+function ag_set_session() {
+  if (!session_cache_get('pr_age_gate_session')) {
+    session_cache_set('pr_age_gate_session', "value");
+  }
+
+  /*if (isset($_POST['current_page_url']) && !empty($_POST['current_page_url'])) {
+    $url = parse_url($_POST['current_page_url']);
+    if (strpos($url['host'], 'pernod-ricard.com') !== false) {
+      cache_clear_all($_POST['current_page_url'], 'cache_page');
+    }
+  }*/
+}
+
+/**
+ * Implements hook_boot().
+ */
+function pr_hub_agegate_boot() {
+  // @todo: check cli, see pr_hub_extra_disable_admin_path
+  $conf_path_array = explode('/', conf_path());
+  $multisite = array_pop($conf_path_array);
+  /**
+   * Track referer.
+   */
+
+  if (!isset($_COOKIE['pr_referer'])) {
+    // Create.
+
+    $switch_tracking_referer = array(
+      'current' => $multisite,
+      'referer' => $multisite,
+      'saved' => $multisite,
+      'redirections' => array(
+        $multisite . '-' . $multisite => "TRUE",
+      ),
+    );
+    setcookie('pr_referer', json_encode($switch_tracking_referer), REQUEST_TIME + 31536000, '/', '', TRUE, FALSE);
+    $_COOKIE['pr_referer'] = json_encode($switch_tracking_referer);
+  }
+
+  if (isset($_SERVER['HTTP_REFERER']) && !empty($_SERVER['HTTP_REFERER']) && strpos($_SERVER['HTTP_REFERER'], 'pernod-ricard.com') !== FALSE) {
+    // Update.
+    $dt_track = json_decode($_COOKIE['pr_referer']);
+
+    $dt_track->current = $multisite;
+
+    if ($dt_track->current !== $dt_track->saved) {
+      // Save
+      $dt_track->referer = $dt_track->saved;
+      // Update
+      $dt_track->saved = $multisite;
+    }
+
+    $stack_data = $dt_track->referer . '-' . $dt_track->current;
+
+    $dt_track->redirections = (array) $dt_track->redirections;
+
+    if (
+      $dt_track->referer !== $dt_track->current &&
+      !isset($dt_track->redirections[$stack_data])
+    ) { // We have a match, we should prepare a redirection.
+      $dt_track->redirections[$stack_data] = "FALSE";
+    }
+    setcookie('pr_referer', json_encode($dt_track), REQUEST_TIME + 31536000, '/', '', TRUE, FALSE);
+    $_COOKIE['pr_referer'] = json_encode($dt_track);
+
+  }
+
+  $cache = drupal_page_get_cache();
+
+  if (is_object($cache)) {
+
+
+    $agegate_vars = variable_get('pr_lp_ag_vars');
+
+    if (isset($agegate_vars)) {
+      $ag = $agegate_vars['ag'];
+      $lp = $agegate_vars['lp'];
+    }
+
+    // Negotiate whether to use compression.
+    $page_compression = !empty($cache->data['page_compressed']);
+    $return_compressed = $page_compression && isset($_SERVER['HTTP_ACCEPT_ENCODING']) && strpos($_SERVER['HTTP_ACCEPT_ENCODING'], 'gzip') !== FALSE;
+
+    // Get headers set in hook_boot(). Keys are lower-case.
+    $hook_boot_headers = drupal_get_http_header();
+
+    // Headers generated in this function, that may be replaced or unset using
+    // drupal_add_http_headers(). Keys are mixed-case.
+    $default_headers = array();
+
+    foreach ($cache->data['headers'] as $name => $value) {
+      // In the case of a 304 response, certain headers must be sent, and the
+      // remaining may not (see RFC 2616, section 10.3.5). Do not override
+      // headers set in hook_boot().
+      $name_lower = strtolower($name);
+      if (in_array($name_lower, array(
+          'content-location',
+          'expires',
+          'cache-control',
+          'vary'
+        )) && !isset($hook_boot_headers[$name_lower])
+      ) {
+        drupal_add_http_header($name, $value);
+        unset($cache->data['headers'][$name]);
+      }
+    }
+
+    // If the client sent a session cookie, a cached copy will only be served
+    // to that one particular client due to Vary: Cookie. Thus, do not set
+    // max-age > 0, allowing the page to be cached by external proxies, when a
+    // session cookie is present unless the Vary header has been replaced or
+    // unset in hook_boot().
+    $max_age = !isset($_COOKIE[session_name()]) || isset($hook_boot_headers['vary']) ? variable_get('page_cache_maximum_age', 0) : 0;
+    $default_headers['Cache-Control'] = 'public, max-age=' . $max_age;
+
+    // Entity tag should change if the output changes.
+    $etag = '"' . $cache->created . '-' . intval($return_compressed) . '"';
+    header('Etag: ' . $etag);
+
+    // See if the client has provided the required HTTP headers.
+    $if_modified_since = isset($_SERVER['HTTP_IF_MODIFIED_SINCE']) ? strtotime($_SERVER['HTTP_IF_MODIFIED_SINCE']) : FALSE;
+    $if_none_match = isset($_SERVER['HTTP_IF_NONE_MATCH']) ? stripslashes($_SERVER['HTTP_IF_NONE_MATCH']) : FALSE;
+
+    if ($if_modified_since && $if_none_match
+      && $if_none_match == $etag // etag must match
+      && $if_modified_since == $cache->created
+    ) {  // if-modified-since must match
+      header($_SERVER['SERVER_PROTOCOL'] . ' 304 Not Modified');
+      drupal_send_headers($default_headers);
+      return;
+    }
+
+    // Send the remaining headers.
+    foreach ($cache->data['headers'] as $name => $value) {
+      drupal_add_http_header($name, $value);
+    }
+
+    $default_headers['Last-Modified'] = gmdate(DATE_RFC7231, $cache->created);
+
+    // HTTP/1.0 proxies does not support the Vary header, so prevent any caching
+    // by sending an Expires date in the past. HTTP/1.1 clients ignores the
+    // Expires header if a Cache-Control: max-age= directive is specified (see RFC
+    // 2616, section 14.9.3).
+    $default_headers['Expires'] = 'Sun, 19 Nov 1978 05:00:00 GMT';
+
+    drupal_send_headers($default_headers);
+
+    // Allow HTTP proxies to cache pages for anonymous users without a session
+    // cookie. The Vary header is used to indicates the set of request-header
+    // fields that fully determines whether a cache is permitted to use the
+    // response to reply to a subsequent request for a given URL without
+    // revalidation. If a Vary header has been set in hook_boot(), it is assumed
+    // that the module knows how to cache the page.
+    if (!isset($hook_boot_headers['vary']) && !variable_get('omit_vary_cookie')) {
+      header('Vary: Cookie');
+    }
+
+    /*    if ($page_compression) {
+          header('Vary: Accept-Encoding', FALSE);
+          // If page_compression is enabled, the cache contains gzipped data.
+          if ($return_compressed) {
+            // $cache->data['body'] is already gzip'ed, so make sure
+            // zlib.output_compression does not compress it once more.
+            ini_set('zlib.output_compression', '0');
+            header('Content-Encoding: gzip');
+          }
+          else {
+            // The client does not support compression, so unzip the data in the
+            // cache. Strip the gzip header and run uncompress.
+            $cache->data['body'] = gzinflate(substr(substr($cache->data['body'], 10), 0, -8));
+          }
+        }*/
+
+    $cache->data['body'] = gzinflate(substr(substr($cache->data['body'], 10), 0, -8));
+
+    $toggle_agegate = FALSE;
+
+    if (isset($_COOKIE['Drupal_session_cache_pr_landing_page_session']) || $lp['lp_disable'] == 1) {
+      $cache->data['body'] = str_replace('</head>', '<style>.age-gate-first-step{display: none !important;}</style></head>', $cache->data['body']);
+
+      if (strpos($cache->data['body'], 'class="age-gate-second-step') === FALSE) {
+        $cache->data['body'] = str_replace('<html', '<html class="no-agegate"', $cache->data['body']);
+        $cache->data['body'] = str_replace('testAgeGatePage', '', $cache->data['body']);
+        $toggle_agegate = TRUE;
+      }
+    }
+    else {
+      $cache->data['body'] = str_replace('</head>', '<style>html .age-gate-first-step{ display: -webkit-box !important; display: -webkit-flex !important; display: -ms-flexbox !important; display: flex !important; }</style></head>', $cache->data['body']);
+      $cache->data['body'] = str_replace('no-agegate', '', $cache->data['body']);
+      $cache->data['body'] = str_replace('isAgeGate', '', $cache->data['body']);
+      $toggle_agegate = TRUE;
+    }
+
+    if (isset($_COOKIE['Drupal_session_cache_pr_age_gate_session']) || $ag['ag_disable'] == 1) {
+      $cache->data['body'] = str_replace('</head>', '<style>.age-gate-second-step{display: none !important;}</style></head>', $cache->data['body']);
+
+      if (strpos($cache->data['body'], 'class="age-gate-first-step') === FALSE) {
+        $cache->data['body'] = str_replace('<html', '<html class="no-agegate"', $cache->data['body']);
+        $cache->data['body'] = str_replace('testAgeGatePage', '', $cache->data['body']);
+      }
+    }
+    else {
+      $cache->data['body'] = str_replace('</head>', '<style>html .age-gate-second-step{    display: -webkit-box !important; display: -webkit-flex !important; display: -ms-flexbox !important; display: flex !important;  }</style></head>', $cache->data['body']);
+      if (!$toggle_agegate)
+        $cache->data['body'] = str_replace('no-agegate', '', $cache->data['body']);
+    }
+
+    if (isset($_COOKIE['Drupal_session_cache_pr_landing_page_session']) && isset($_COOKIE['Drupal_session_cache_pr_age_gate_session']) || $ag['ag_disable'] == 1 && $lp['lp_disable'] == 1) {
+      $cache->data['body'] = str_replace('<html', '<html class="no-agegate"', $cache->data['body']);
+      $cache->data['body'] = str_replace('testAgeGatePage', '', $cache->data['body']);
+    }
+
+    $detect = NULL;
+    if (class_exists('Mobile_Detect')) {
+      try {
+        $detect = new Mobile_Detect();
+      } catch (Exception $e) {
+        $detect = NULL;
+        watchdog('mobile_detect', 'Could not instantiate Mobile_Detect(): %message',
+          array('%message' => $e->getMessage()), WATCHDOG_ALERT);
+      }
+    }
+    else {
+      watchdog('mobile_detect', 'Mobile_Detect() class does not exist', array(), WATCHDOG_ALERT);
+    }
+
+    if ($detect) {
+      $is_tablet = $detect->isTablet();
+      $is_mobile = $detect->isMobile();
+
+      if (!$is_tablet) {
+        $cache->data['body'] = str_replace('pr-tablet', '', $cache->data['body']);
+      }
+      if (!$is_mobile) {
+        $cache->data['body'] = str_replace('pr-phone', '', $cache->data['body']);
+      }
+    }
+
+    // Print the page.
+    print $cache->data['body'];
+
+    // No need to invoke exit hook
+    // The page will be cached without LP OR LG
+
+    // We are done.
+    exit;
+  }
+}
+
+
+/**
+ * Implements hook_flush_caches().
+ */
+function pr_hub_agegate_flush_caches() {
+  // After caches are cleared we will run mymodule_cache_rebuild()
+  register_shutdown_function('_pr_hub_agegate_cache_rebuild');
+
+  // We don't want to add any custom cache-tables, so just return an empty array
+  return array();
+}
+
+/**
+ * Rebuild expensive cache items that need to be rebuilt immediately.
+ */
+function _pr_hub_agegate_cache_rebuild() {
+  variable_set('cache_sync', 0);
+
+  /*
+  $languages = language_list();
+  $default_value = variable_get('pr_hub_menus', array());
+  $all_menus = isset($default_value['menus_name']) ? $default_value['menus_name'] : array();
+
+  $links = [];
+
+  foreach ($languages as $lg) {
+    // Push Home links
+    array_push($links, url('<front>', array(
+      'language' => $lg,
+      'absolute' => TRUE,
+    )));
+
+    // Push menu links
+    foreach ($all_menus as $menu_name) {
+      $menu = menu_load($menu_name);
+      if (isset($menu['menu_name'])) {
+        $tree = menu_load_links($menu['menu_name']);
+        foreach ($tree as $item) {
+          $item['link_path'] = substr($item['link_path'], 0, strrpos($item['link_path'], "/"));
+          array_push($links, url($item['link_path'], array(
+            'language' => $lg,
+            'absolute' => TRUE,
+          )));
+        }
+      }
+    }
+  }
+
+  $links = array_unique($links);
+
+  // Open webpages
+  foreach ($links as $url) {
+    drupal_http_request($url);
+  }*/
+
+}
